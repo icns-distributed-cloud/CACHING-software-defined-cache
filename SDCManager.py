@@ -81,6 +81,7 @@ if __name__ == '__main__':
     # 2. recv data
     # 3. calculate error
     # 4. send error
+    # 5. RESTful API in this cache
 
     message_client.loop_stop()
     # Threads completely executed

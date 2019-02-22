@@ -26,6 +26,7 @@
 #                   in the Python Programming Language.
 # ==============================================================================
 import os
+import sys
 import threading
 import time
 import json
@@ -40,11 +41,13 @@ class SoftwareDefinedCache:
         :param capacity: the capacity of the cache (unit: MB)
         :param data_retention_period: the data retention period to delete data (unit: second)
         """
+        self._lock = threading.Lock()
+        self._used_lock = threading.Lock()
         self.directory = directory
-        self.capacity = capacity
-        self.used = 0
+        self.capacity = (capacity << 20)
+        self._used = 0
         self.data_retention_period = data_retention_period
-        self.__lock = threading.Lock()
+        self.seek_start_point = 0
 
     # (Not covered here) recv data <- SDC Manager is in charge of communication with EDCrammer or a cloud service.
     # store data to cache
@@ -52,28 +55,74 @@ class SoftwareDefinedCache:
         file_name = time.strftime("%Y%m%d%H%M%S")
         full_path = os.path.join(self.directory, file_name)
 
-        f = open(full_path, 'w')
+        f = open(full_path, 'wb')
         f.write(data)
 
         # read file size and convert byte to megabyte
-        self.used += (os.path.getsize(full_path) >> 20)
+        self.used += os.path.getsize(full_path)
 
         f.close()
 
     # !!! the other function to read data is necessary. (e.g., "index.html" file it self) it depends on a service.
     # read first data from a directory
     def read_first_data(self):
-        self.__lock.acquire()
+        data = False
+        if self.used > 0:
+            self._lock.acquire()
 
-        files = sorted(os.listdir(self.directory))
-        file_name = files.pop(0)
-        full_path = os.path.join(self.directory, file_name)
+            files = sorted(os.listdir(self.directory))
+            if len(files) > 0:
+                file_name = files.pop(0)
+                full_path = os.path.join(self.directory, file_name)
 
-        f = open(full_path, 'r')
-        data = f.read()
-        f.close()
+                f = open(full_path, 'rb')
 
-        self.__lock.release()
+                data = f.read()
+                f.close()
+
+                self.used -= os.path.getsize(full_path)
+                os.remove(full_path)
+
+            self._lock.release()
+
+        return data
+
+    def read_bytes(self, size):
+        data = False
+        if self.used > 0:
+            self._lock.acquire()
+
+            files = sorted(os.listdir(self.directory))
+            if len(files) > 0:
+                file_name = files.pop(0)
+                full_path = os.path.join(self.directory, file_name)
+
+                f = open(full_path, 'rb')
+
+                f.seek(self.seek_start_point)
+
+                data = f.read(size)
+                f.close()
+
+                data_size = len(data)
+                file_size = os.path.getsize(full_path)
+                self.used -= data_size
+
+                # update seek_start_point for future access
+                self.seek_start_point += data_size
+
+                # print("Size: %s /// data_size: %s" %
+                #       (size, data_size))
+
+                print("Used: %s /// seek_start_point: %s /// file_size: %s" %
+                      (self.used, self.seek_start_point, file_size))
+
+                if file_size == self.seek_start_point:
+                    print("!!!!!!!!!!!!!!!!DELETE %s" % full_path)
+                    os.remove(full_path)
+                    self.seek_start_point = 0
+
+            self._lock.release()
 
         return data
 
@@ -84,7 +133,7 @@ class SoftwareDefinedCache:
         # aging checking function will be added.
         current_time = time.time()
 
-        self.__lock.acquire()
+        self._lock.acquire()
 
         files = sorted(os.listdir(self.directory))
         for file_name in files:
@@ -93,7 +142,7 @@ class SoftwareDefinedCache:
             if no_hit_period > self.data_retention_period:
                 os.remove(full_path)
 
-        self.__lock.release()
+        self._lock.release()
 
     def run(self):
         t1 = threading.Thread(target=self.decay_data)
@@ -110,3 +159,13 @@ class SoftwareDefinedCache:
             "data_retention_period": self.data_retention_period
         }
         return json.dumps(cache_status)
+
+    @property
+    def used(self):
+        return self._used
+
+    @used.setter
+    def used(self, val):
+        self._used_lock.acquire()
+        self._used = val
+        self._used_lock.release()

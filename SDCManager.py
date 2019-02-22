@@ -25,13 +25,16 @@
 # notes           : This class is an implementation of a manager to handle SDC
 #                   in the Python Programming Language.
 # ==============================================================================
-from flask import Flask
-from flask_restful import Resource, Api
+
+import os
 # import logging
 import threading
 import time
+
 import paho.mqtt.client as mqtt
 from paho.mqtt import publish
+
+import SoftwareDefinedCache as SDC
 
 serLock = threading.Lock()
 
@@ -39,51 +42,65 @@ serLock = threading.Lock()
 
 SDC_id = "SDC_1"
 
-# ----------------------------------------------------RESTful API----------------------------------------------------#
-app = Flask(__name__)
-api = Api(app)
+sdc = SDC.SoftwareDefinedCache(os.path.join(".", "cache"), 1)
+
+# ----------------------------------------Error calculation for PID controller---------------------------------------#
+# Assume 80% cache utilization
+TARGET_UTILIZATION = 0.9
 
 
-class Introduction:
-    def get(self):
-        introduction = """
-        Hello!
-        This is the RESTful API for Software-Defined Cache.
-        By "/help", you can see the list of Method(Create, Read, Update, Delete) and Resources(URI). 
-        """
-        return introduction
-
-
-class Help(Resource):
-    def get(self):
-        help_message = """
-        API Usage:
-        - GET       /
-        - GET       /help
-        - GET       /api/data/
-        - GET       /api/data/<string:data_id>
-        """
-        return help_message
-
-
-class CachedData(Resource):
-    def get(self, data_id):
-        if not data_id:
-            print('First In First Out!')
-            # read first and return
-        else:
-            print('The data out')
-            # read <data_id> and return
-
-        return {'task': 'Hello world'}
-
-
-api.add_resource(Introduction, '/')
-api.add_resource(Help, '/help')
-api.add_resource(CachedData, '/api/data/', '/api/data/<string:data_id>')
+def calculate_error(target, current):
+    return target - current
 
 
 # -------------------------------------------------------------------------------------------------------------------#
+
+
+# # ----------------------------------------------------RESTful API----------------------------------------------------#
+# app = Flask(__name__)
+# api = Api(app)
+#
+#
+# class Introduction:
+#     def get(self):
+#         introduction = """
+#         Hello!
+#         This is the RESTful API for Software-Defined Cache.
+#         By "/help", you can see the list of Method(Create, Read, Update, Delete) and Resources(URI).
+#         """
+#         return introduction
+#
+#
+# class Help(Resource):
+#     def get(self):
+#         help_message = """
+#         API Usage:
+#         - GET       /
+#         - GET       /help
+#         - GET       /api/data/
+#         - GET       /api/data/<string:data_id>
+#         """
+#         return help_message
+#
+#
+# class CachedData(Resource):
+#     def get(self, data_id):
+#         if not data_id:
+#             print('First In First Out!')
+#             data = sdc.read_first_data()
+#         else:
+#             print('The data out')
+#             # read <data_id> and return
+#
+#         return data
+#
+#
+# api.add_resource(Introduction, '/')
+# api.add_resource(Help, '/help')
+# api.add_resource(CachedData, '/api/data/', '/api/data/<string:data_id>')
+#
+#
+# # -------------------------------------------------------------------------------------------------------------------#
 
 
 # -------------------------------------------------------MQTT--------------------------------------------------------#
@@ -91,6 +108,7 @@ def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("Connected - Result code: " + str(rc))
         client.subscribe("core/edge/" + SDC_id + "/data")
+        client.subscribe("core/edge/" + SDC_id + "/flow_control")
 
     else:
         print("Bad connection returned code = ", rc)
@@ -99,9 +117,21 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     # print("Cart new message: " + msg.topic + " " + str(msg.payload))
-    message = str(msg.payload)
+    message = msg.payload
+    print("Arrived topic: %s" % msg.topic)
+    # print("Arrived message: %s" % message)
+
     if msg.topic == "core/edge/" + SDC_id + "/data":
-        print("Arrived message: " + message)
+        sdc.store_data(message)
+        print("Data size: %s" % len(message))
+        # error = calculate_error(sdc.capacity * TARGET_UTILIZATION, sdc.used)
+        # print("error: %s" % error)
+        print("used: %s" % sdc.used)
+        publish.single("core/edge/" + SDC_id + "/feedback", sdc.used, hostname="163.180.117.37", port=1883)
+    elif msg.topic == "core/edge/" + SDC_id + "/flow_control":
+        # error = calculate_error(sdc.capacity * TARGET_UTILIZATION, sdc.used)
+        # print("error: %s" % error)
+        publish.single("core/edge/" + SDC_id + "/feedback", sdc.used, hostname="163.180.117.37", port=1883)
     else:
         print("Unknown - topic: " + msg.topic + ", message: " + message)
 
@@ -123,35 +153,100 @@ def on_log(client, userdata, level, string):
 # publish.single("elevator/destination_floor_number", "2", hostname="163.180.117.195", port=1883)
 # ------------------------------------------------------------------------------------------------------------------#
 
+TEST_TIME = 20  # sec
+
+
+# ---------------------------------------------------- Producer ---------------------------------------------------- #
+def request_to_produce_data():
+    # how long? many?
+    start_time = time.time()
+    while True:
+        # calculate error (utilization difference)
+        # error = calculate_error(sdc.capacity * TARGET_UTILIZATION, sdc.used)
+        # print("error :%s" % error)
+        # error = calculate_error(sdc.capacity * TARGET_UTILIZATION, sdc.used)
+        print("feedback :%s" % sdc.used)
+        # send feedback
+        publish.single("core/edge/" + SDC_id + "/feedback", sdc.used, hostname="163.180.117.37", port=1883)
+        time.sleep(0.1)
+        running_time = time.time() - start_time
+        if running_time > TEST_TIME:
+            break
+
+
+# ---------------------------------------------------- Consumer ---------------------------------------------------- #
+def consume_data():
+    # how long? many?
+
+    start_time = time.time()
+    read_size = (400 << 10)
+    while True:
+        # consume data
+        # This section should be changed to apply the distributed messaging structure.
+        # In other words, MQTT will be used.
+        sdc.read_bytes(read_size)
+        # print("Consuming data")
+        running_time = time.time() - start_time
+        if running_time > TEST_TIME:
+            break
+        time.sleep(0.01)
+
+
 if __name__ == '__main__':
+    print("Truncate cache")
+    directory = os.path.join(".", "cache")
+    files = sorted(os.listdir(directory))
+    for file_name in files:
+        full_path = os.path.join(directory, file_name)
+        os.remove(full_path)
+
+    print("Start testing")
+    time.sleep(2)
+
+    # Software-Defined Cache runs
+    sdc.run()
+
     # RESTful API runs
-    app.run(debug=True)
+    # app.run(debug=True)
 
     # MQTT connection
-    message_client = mqtt.Client(SDC_id)
+    message_client = mqtt.Client("Client")
     message_client.on_connect = on_connect
     message_client.on_message = on_message
 
     # Connect to MQTT broker
-
     message_client.connect("163.180.117.37", 1883, 60)
 
     print("MQTT client start")
     message_client.loop_start()
 
     # lock = threading.Lock()
-    # Creating thread
-    # t1 = threading.Thread(target=func, args=[xxx])
-    # Starting thread 1
+    # Creating threads
+    # t1 = threading.Thread(target=request_to_produce_data)
+    t2 = threading.Thread(target=consume_data)
+    publish.single("core/edge/" + SDC_id + "/feedback", sdc.capacity * TARGET_UTILIZATION, hostname="163.180.117.37",
+                   port=1883)
+    # Starting threads
     # t1.start()
-    # Wait until thread 1 is completely executed
+    t2.start()
+    # Wait until threads are completely executed
     # t1.join()
+    t2.join()
+
+    print("All threads is done!")
+
+    print("Notify - Done to test")
+    publish.single("core/edge/" + SDC_id + "/done_to_test", "done", hostname="163.180.117.37", port=1883)
+    time.sleep(2)
 
     # ## communication test section - start
-    while True:
-        time.sleep(1)
-        publish.single("core/edge/" + SDC_id + "/error", "5", hostname="163.180.117.37", port=1883)
+    # while True:
+    #     time.sleep(1)
+    #     publish.single("core/edge/" + SDC_id + "/error", "5", hostname="163.180.117.37", port=1883)
+
     # ## communication test section - end
+
+    # publish.single("core/edge/" + SDC_id + "/error", "5", hostname="localhost", port=1883)
 
     # development plan
     # 1. initialize cache (path, cache capacity, data queue)
@@ -162,4 +257,3 @@ if __name__ == '__main__':
 
     message_client.loop_stop()
     # Threads completely executed
-    print("All threads is done!")

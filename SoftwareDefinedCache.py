@@ -25,6 +25,7 @@
 # notes           : This SoftwareDefinedCache is an implementation of a cache managed by software
 #                   in the Python Programming Language.
 # ==============================================================================
+from datetime import datetime
 import os
 import sys
 import threading
@@ -49,10 +50,17 @@ class SoftwareDefinedCache:
         self.data_retention_period = data_retention_period
         self.seek_start_point = 0
 
+    def initialize(self):
+        self._used = 0
+        self.seek_start_point = 0
+
     # (Not covered here) recv data <- SDC Manager is in charge of communication with EDCrammer or a cloud service.
     # store data to cache
     def store_data(self, data):
-        file_name = time.strftime("%Y%m%d%H%M%S")
+        # file name should includes milliseconds because caching is occurred quickly.
+        # [:-3] means convert microseconds to milliseconds
+        self._lock.acquire()
+        file_name = datetime.now().strftime("%Y%m%d%H%M%S.%f")[:-3]  # time.strftime("%Y%m%d%H%M%S")
         full_path = os.path.join(self.directory, file_name)
 
         f = open(full_path, 'wb')
@@ -62,6 +70,7 @@ class SoftwareDefinedCache:
         self.used += os.path.getsize(full_path)
 
         f.close()
+        self._lock.release()
 
     # !!! the other function to read data is necessary. (e.g., "index.html" file it self) it depends on a service.
     # read first data from a directory
@@ -88,43 +97,58 @@ class SoftwareDefinedCache:
         return data
 
     def read_bytes(self, size):
-        data = False
-        if self.used > 0:
-            self._lock.acquire()
+        data = b''
+        result = False
+        print("Utilization: %s" % self.used)
+        try:
+            if self.used >= size:
+                self._lock.acquire()
+                # if used is bigger or equal with size, the below 2 lines are naturally passed.
+                # files = sorted(os.listdir(self.directory))
+                # if len(files) > 0:
+                data_size = 0
 
-            files = sorted(os.listdir(self.directory))
-            if len(files) > 0:
-                file_name = files.pop(0)
-                full_path = os.path.join(self.directory, file_name)
+                while data_size < size:
+                    files = sorted(os.listdir(self.directory))
+                    # always pop 0 because the read file is deleted when seek_pointer reaches EOF.
+                    file_name = files.pop(0)
+                    full_path = os.path.join(self.directory, file_name)
 
-                f = open(full_path, 'rb')
+                    f = open(full_path, 'rb')
 
-                f.seek(self.seek_start_point)
+                    f.seek(self.seek_start_point)
+                    read_data = f.read(size - data_size)
 
-                data = f.read(size)
-                f.close()
+                    f.close()
 
-                data_size = len(data)
-                file_size = os.path.getsize(full_path)
-                self.used -= data_size
+                    read_data_size = len(read_data)
+                    file_size = os.path.getsize(full_path)
+                    self.used -= read_data_size
 
-                # update seek_start_point for future access
-                self.seek_start_point += data_size
+                    # update seek_start_point for future access
+                    self.seek_start_point += read_data_size
 
-                # print("Size: %s /// data_size: %s" %
-                #       (size, data_size))
+                    # print("Size: %s /// data_size: %s" %
+                    #       (size, data_size))
 
-                print("Used: %s /// seek_start_point: %s /// file_size: %s" %
-                      (self.used, self.seek_start_point, file_size))
+                    # print("Used: %s /// seek_start_point: %s /// file_size: %s" %
+                    #       (self.used, self.seek_start_point, file_size))
 
-                if file_size == self.seek_start_point:
-                    print("!!!!!!!!!!!!!!!!DELETE %s" % full_path)
-                    os.remove(full_path)
-                    self.seek_start_point = 0
+                    if file_size <= self.seek_start_point:
+                        # print("!!!!!!!!!!!!!!!!DELETE %s" % full_path)
+                        os.remove(full_path)
+                        self.seek_start_point = 0
 
-            self._lock.release()
+                    data += read_data
+                    data_size += read_data_size
 
-        return data
+                result = True
+                self._lock.release()
+        except Exception as e:
+            result = False
+            print("!!!!! Exception: %s" % e)
+
+        return data, result
 
     def decay_data(self):
         """Running as a thread, this function deletes data considering last data hit.
@@ -162,7 +186,10 @@ class SoftwareDefinedCache:
 
     @property
     def used(self):
-        return self._used
+        self._used_lock.acquire()
+        val = self._used
+        self._used_lock.release()
+        return val
 
     @used.setter
     def used(self, val):

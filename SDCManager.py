@@ -67,6 +67,9 @@ MQTT_PORT = 1883
 MQTT_HOST_ON_EDGE = "163.180.117.185"
 MQTT_PORT_ON_EDGE = 11883
 
+counter_to_core_cloud = 0
+counter_to_cloud_service = 0
+
 # ----------------------------------------Error calculation for PID controller---------------------------------------#
 # Assume 90% cache utilization
 TARGET_UTILIZATION = 0.9
@@ -176,10 +179,13 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     global conditionLock
     global flow_control_delay
+    global counter_to_core_cloud
 
     try:
         # print("Cart new message: " + msg.topic + " " + str(msg.payload))
         message = msg.payload
+        counter_to_core_cloud += 1
+        print("<<=== Counter to core cloud: %s" % counter_to_core_cloud)
         print("<<=== Arrived topic: %s" % msg.topic)
         # print("Arrived message: %s" % message)
 
@@ -187,7 +193,7 @@ def on_message(client, userdata, msg):
             with conditionLock:
                 # sdc.store_data(message)
                 sdc.put_to_write_buffer(message)
-                print("<<=== Cached data size: %s" % len(message))
+                print("<<=== Cached data size: %s" % format(len(message), ","))
                 # data_size = int(message)
                 # print("Data size: %s" % data_size)
                 # sdc.used += data_size
@@ -254,16 +260,19 @@ def on_local_connect(client, userdata, flags, rc):
 
 def on_local_message(client, userdata, msg):
     global is_testing
+    global counter_to_cloud_service
 
     try:
         # print("Cart new message: " + msg.topic + " " + str(msg.payload))
         message = msg.payload
+        counter_to_cloud_service += 1
+        print("===>> Counter to cloud service: %s" % counter_to_cloud_service)
         print("===>> Arrived topic: %s" % msg.topic)
         print("===>> Arrived message: %s" % message)
 
         if msg.topic == "edge/client/" + client_id + "/data_req":
             read_size = int(message)
-            print("===>> Requested amount of data: %s" % read_size)
+            print("===>> Requested amount of data: %s" % format(read_size, ","))
             data, result = sdc.read_bytes(read_size)
             #
             # if sdc.used < read_size:
@@ -283,7 +292,7 @@ def on_local_message(client, userdata, msg):
 
         elif msg.topic == "edge/client/" + client_id + "/done_to_test":
             publish.single("core/edge/" + SDC_id + "/done_to_test", "done", hostname=MQTT_HOST, port=MQTT_PORT, qos=2)
-            time.sleep(3)
+            time.sleep(4)
             is_testing = False
         else:
             print("===>> Unknown - topic: " + msg.topic + ", message: " + message)

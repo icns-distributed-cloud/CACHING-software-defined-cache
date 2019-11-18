@@ -77,7 +77,7 @@ class SoftwareDefinedCache:
             self._buffer_lock.acquire()
             self.buffer.extend(data)
             len_of_buffer = len(self.buffer)
-            print("===== Buffer len: %s" % len(format(len_of_buffer, ",")))
+            print("===== Buffer len: %s" % format(len_of_buffer, ","))
             self._buffer_lock.release()
             if len_of_buffer > 0:
                 self._is_not_empty_buffer.notify()
@@ -104,12 +104,12 @@ class SoftwareDefinedCache:
                             self.store_data(data)
                             print("===== Stored data length: %s" % format(len(data), ","))
                         elif remaining_capacity == 0:   # Cache is full
-                            print("===== Cache is full. Waiting until not full")
+                            print("===== CACHE IS FULL. Waiting until not full")
                             self._is_not_full_cache.wait()
                         else:
                             print("===== Unknown process (remaining_capacity < 0)")
                     elif len_of_buffer == 0:
-                        print("===== Buffer is empty! (%s)" % self.buffer)
+                        print("===== Buffer is empty! (%s)" % len_of_buffer)
                     else:
                         print("===== Unknown (Buffer is lower than 0)")
 

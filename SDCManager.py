@@ -184,7 +184,8 @@ def on_message(client, userdata, msg):
 
         if msg.topic == "core/edge/" + SDC_id + "/data":
             with conditionLock:
-                sdc.store_data(message)
+                # sdc.store_data(message)
+                sdc.put_to_write_buffer(message)
                 print("Data size: %s" % len(message))
                 # data_size = int(message)
                 # print("Data size: %s" % data_size)
@@ -405,7 +406,8 @@ def main():
     # message_local_client.loop_start()
 
     # Software-Defined Cache runs
-    # sdc.run()
+    sdc.run()
+    print("SDC runs")
     scenario_counter = 1
 
     while scenario_counter <= 4:

@@ -101,8 +101,11 @@ def notify_storage_status():
                 # error = calculate_error(sdc.capacity * TARGET_UTILIZATION, sdc.used)
                 # print("error :%s" % error)
                 # error = calculate_error(sdc.capacity * TARGET_UTILIZATION, sdc.used)
-                used = sdc.used
-                print("<<=== feedback :%s" % used)
+                cache_utilization = sdc.used
+                buffer_len = len(sdc.buffer)
+                used = cache_utilization + buffer_len
+                print("<<=== feedback :%s (sdc.used(%s) + sdc.buffer length(%s)" %
+                      (format(used, ","), format(cache_utilization, ","), format(buffer_len, ",")))
                 # send feedback
                 publish.single("core/edge/" + SDC_id + "/feedback", used, hostname=MQTT_HOST, port=MQTT_PORT, qos=2)
                 conditionLock.wait()

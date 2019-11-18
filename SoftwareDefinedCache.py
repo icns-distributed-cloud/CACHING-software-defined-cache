@@ -76,19 +76,25 @@ class SoftwareDefinedCache:
             # print("Type of data: %s" % type(data))
             self._buffer_lock.acquire()
             self.buffer.extend(data)
-            print("Buffer len: %s" % len(self.buffer))
+            len_of_buffer = len(self.buffer)
+            print("===== Buffer len: %s" % len(format(len_of_buffer, ",")))
             self._buffer_lock.release()
-            if len(self.buffer) > 0:
+            if len_of_buffer > 0:
                 self._is_not_empty_buffer.notify()
 
     def store_data_with_write_buffer(self):
-        print("Thread start - store data with write-buffer")
+        print("===== Thread start - store data with write-buffer")
         with self._is_not_empty_buffer:
             while True:
                 self._is_not_empty_buffer.wait()
 
                 with self._is_not_full_cache:
-                    if len(self.buffer) > 0:
+
+                    self._buffer_lock.acquire()
+                    len_of_buffer = len(self.buffer)
+                    self._buffer_lock.release()
+
+                    if len_of_buffer > 0:
                         remaining_capacity = self.capacity - self.used
                         if remaining_capacity > 0:
                             self._buffer_lock.acquire()
@@ -96,15 +102,16 @@ class SoftwareDefinedCache:
                             self.buffer = self.buffer[remaining_capacity:]
                             self._buffer_lock.release()
                             self.store_data(data)
-                            print("Stored data length: %s" % format(len(data), ","))
+                            print("===== Stored data length: %s" % format(len(data), ","))
                         elif remaining_capacity == 0:   # Cache is full
+                            print("===== Cache is full. Waiting until not full")
                             self._is_not_full_cache.wait()
                         else:
-                            print("Unknown process (remaining_capacity < 0)")
-                    elif len(self.buffer) == 0:
-                        print("Buffer is empty! (%s)" % self.buffer)
+                            print("===== Unknown process (remaining_capacity < 0)")
+                    elif len_of_buffer == 0:
+                        print("===== Buffer is empty! (%s)" % self.buffer)
                     else:
-                        print("Unknown (Buffer is lower than 0)")
+                        print("===== Unknown (Buffer is lower than 0)")
 
     # (Not covered here) recv data <- SDC Manager is in charge of communication with EDCrammer or a cloud service.
     # store data to cache
@@ -151,7 +158,7 @@ class SoftwareDefinedCache:
     def read_bytes(self, size):
         data = b''
         result = False
-        print("Utilization: %s" % self.used)
+        print("===== Utilization: %s" % self.used)
         try:
 
             if self.used >= size:

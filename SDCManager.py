@@ -98,16 +98,17 @@ def notify_storage_status():
                 # error = calculate_error(sdc.capacity * TARGET_UTILIZATION, sdc.used)
                 # print("error :%s" % error)
                 # error = calculate_error(sdc.capacity * TARGET_UTILIZATION, sdc.used)
-                print("feedback :%s" % sdc.used)
+                used = sdc.used
+                print("<<=== feedback :%s" % used)
                 # send feedback
-                publish.single("core/edge/" + SDC_id + "/feedback", sdc.used, hostname=MQTT_HOST, port=MQTT_PORT, qos=2)
+                publish.single("core/edge/" + SDC_id + "/feedback", used, hostname=MQTT_HOST, port=MQTT_PORT, qos=2)
                 conditionLock.wait()
                 time.sleep(0.03)
                 running_time = time.time() - start_time
                 if running_time > TEST_TIME:
                     break
     except Exception as e:
-        print("Exception: %s" % e)
+        print("<<=== Exception: %s" % e)
 
 
 # Creating threads
@@ -162,14 +163,14 @@ def notify_storage_status():
 # --------------------------------------------------MQTT Core-Edge----------------------------------------------------#
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("Connected to central MQTT broker - Result code: " + str(rc))
+        print("<<=== Connected to central MQTT broker - Result code: " + str(rc))
         client.subscribe("core/edge/" + SDC_id + "/data")
         client.subscribe("core/edge/" + SDC_id + "/flow_control")
         client.subscribe("core/edge/" + SDC_id + "/start_testing")
 
     else:
-        print("Bad connection returned code = ", rc)
-        print("ERROR: Could not connect to MQTT")
+        print("<<=== Bad connection returned code = ", rc)
+        print("<<=== ERROR: Could not connect to MQTT")
 
 
 def on_message(client, userdata, msg):
@@ -179,14 +180,14 @@ def on_message(client, userdata, msg):
     try:
         # print("Cart new message: " + msg.topic + " " + str(msg.payload))
         message = msg.payload
-        print("Arrived topic: %s" % msg.topic)
+        print("<<=== Arrived topic: %s" % msg.topic)
         # print("Arrived message: %s" % message)
 
         if msg.topic == "core/edge/" + SDC_id + "/data":
             with conditionLock:
                 # sdc.store_data(message)
                 sdc.put_to_write_buffer(message)
-                print("Data size: %s" % len(message))
+                print("<<=== Cached data size: %s" % len(message))
                 # data_size = int(message)
                 # print("Data size: %s" % data_size)
                 # sdc.used += data_size
@@ -199,7 +200,7 @@ def on_message(client, userdata, msg):
                 # publish.single("core/edge/" + SDC_id + "/feedback", sdc.used, hostname=MQTT_HOST, port=MQTT_PORT)
         elif msg.topic == "core/edge/" + SDC_id + "/flow_control":
             with conditionLock:
-                print("~~~~Flow_control~~~~")
+                print("<<=== ~~~~Rate_control~~~~")
                 time.sleep(0.03)
                 flow_control_delay += 0.03
                 conditionLock.notify()
@@ -209,7 +210,7 @@ def on_message(client, userdata, msg):
                 # time.sleep(0.03)
                 # publish.single("core/edge/" + SDC_id + "/feedback", sdc.used, hostname=MQTT_HOST, port=MQTT_PORT)
         elif msg.topic == "core/edge/" + SDC_id + "/start_testing":
-            print("Start testing!!")
+            print("<<=== Start testing!!")
             storage_status_notifying = threading.Thread(target=notify_storage_status)
             storage_status_notifying.start()
             time.sleep(0.03)
@@ -217,9 +218,9 @@ def on_message(client, userdata, msg):
             publish.single("edge/client/" + client_id + "/start_caching", 1, hostname=MQTT_HOST_ON_EDGE,
                            port=MQTT_PORT_ON_EDGE, qos=2)
         else:
-            print("Unknown - topic: " + msg.topic + ", message: " + message)
+            print("<<=== Unknown - topic: " + msg.topic + ", message: " + message)
     except Exception as e:
-        print("Exception: %s" % e)
+        print("<<=== Exception: %s" % e)
 
 
 def on_publish(client, userdata, mid):
@@ -242,13 +243,13 @@ def on_log(client, userdata, level, string):
 # --------------------------------------------------MQTT Edge-Client---------------------------------------------------#
 def on_local_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("Connected to local MQTT broker - Result code: " + str(rc))
+        print("===>> Connected to local MQTT broker - Result code: " + str(rc))
         client.subscribe("edge/client/" + client_id + "/data_req")
         client.subscribe("edge/client/" + client_id + "/done_to_test")
 
     else:
-        print("Bad connection returned code = ", rc)
-        print("ERROR: Could not connect to MQTT")
+        print("===>> Bad connection returned code = ", rc)
+        print("===>> ERROR: Could not connect to MQTT")
 
 
 def on_local_message(client, userdata, msg):
@@ -257,12 +258,12 @@ def on_local_message(client, userdata, msg):
     try:
         # print("Cart new message: " + msg.topic + " " + str(msg.payload))
         message = msg.payload
-        print("Arrived topic: %s" % msg.topic)
-        print("Arrived message: %s" % message)
+        print("===>> Arrived topic: %s" % msg.topic)
+        print("===>> Arrived message: %s" % message)
 
         if msg.topic == "edge/client/" + client_id + "/data_req":
             read_size = int(message)
-            print("Requested amount of data: %s" % read_size)
+            print("===>> Requested amount of data: %s" % read_size)
             data, result = sdc.read_bytes(read_size)
             #
             # if sdc.used < read_size:
@@ -272,12 +273,11 @@ def on_local_message(client, userdata, msg):
             #     sdc.used -= read_size
 
             if result:
-                print('*** ', end='', flush=True)
-                print("Length of transmitted data: %s" % len(data))
+                print("===>> Length of transmitted data: %s" % len(data))
                 publish.single("edge/client/" + client_id + "/data", data, hostname=MQTT_HOST_ON_EDGE,
                                port=MQTT_PORT_ON_EDGE, qos=2)
             else:
-                print("Cache misses (no data or not enough data)")
+                print("===>> Cache misses (no data or not enough data)")
                 publish.single("edge/client/" + client_id + "/data", False, hostname=MQTT_HOST_ON_EDGE,
                                port=MQTT_PORT_ON_EDGE, qos=2)
 
@@ -286,7 +286,7 @@ def on_local_message(client, userdata, msg):
             time.sleep(3)
             is_testing = False
         else:
-            print("Unknown - topic: " + msg.topic + ", message: " + message)
+            print("===>> Unknown - topic: " + msg.topic + ", message: " + message)
     except Exception as e:
         print("Exception: %s" % e)
 

@@ -57,15 +57,54 @@ class SoftwareDefinedCache:
         """
         self._lock = threading.Lock()
         self._used_lock = threading.Lock()
+        self._buffer_lock = threading.Lock()
+        self._is_not_full_cache = threading.Condition()
+        self._is_not_empty_buffer = threading.Condition()
         self.directory = directory
         self.capacity = (capacity << 20)
         self._used = 0
         self.data_retention_period = data_retention_period
         self.seek_start_point = 0
+        self._buffer = bytearray()
 
     def initialize(self):
         self._used = 0
         self.seek_start_point = 0
+
+    def put_to_write_buffer(self, data):
+        with self._is_not_empty_buffer:
+            # print("Type of data: %s" % type(data))
+            self._buffer_lock.acquire()
+            self.buffer.extend(data)
+            print("Buffer len: %s" % len(self.buffer))
+            self._buffer_lock.release()
+            if len(self.buffer) > 0:
+                self._is_not_empty_buffer.notify()
+
+    def store_data_with_write_buffer(self):
+        print("Thread start - store data with write-buffer")
+        with self._is_not_empty_buffer:
+            while True:
+                self._is_not_empty_buffer.wait()
+
+                with self._is_not_full_cache:
+                    if len(self.buffer) > 0:
+                        remaining_capacity = self.capacity - self.used
+                        if remaining_capacity > 0:
+                            self._buffer_lock.acquire()
+                            data = self.buffer[:remaining_capacity]
+                            self.buffer = self.buffer[remaining_capacity:]
+                            self._buffer_lock.release()
+                            self.store_data(data)
+                            print("Stored data length: %s" % format(len(data), ","))
+                        elif remaining_capacity == 0:   # Cache is full
+                            self._is_not_full_cache.wait()
+                        else:
+                            print("Unknown process (remaining_capacity < 0)")
+                    elif len(self.buffer) == 0:
+                        print("Buffer is empty! (%s)" % self.buffer)
+                    else:
+                        print("Unknown (Buffer is lower than 0)")
 
     # (Not covered here) recv data <- SDC Manager is in charge of communication with EDCrammer or a cloud service.
     # store data to cache
@@ -114,49 +153,52 @@ class SoftwareDefinedCache:
         result = False
         print("Utilization: %s" % self.used)
         try:
+
             if self.used >= size:
-                self._lock.acquire()
-                # if used is bigger or equal with size, the below 2 lines are naturally passed.
-                # files = sorted(os.listdir(self.directory))
-                # if len(files) > 0:
-                data_size = 0
+                with self._is_not_full_cache:
+                    self._lock.acquire()
+                    # if used is bigger or equal with size, the below 2 lines are naturally passed.
+                    # files = sorted(os.listdir(self.directory))
+                    # if len(files) > 0:
+                    data_size = 0
 
-                while data_size < size:
-                    files = sorted(os.listdir(self.directory))
-                    # always pop 0 because the read file is deleted when seek_pointer reaches EOF.
-                    file_name = files.pop(0)
-                    full_path = os.path.join(self.directory, file_name)
+                    while data_size < size:
+                        files = sorted(os.listdir(self.directory))
+                        # always pop 0 because the read file is deleted when seek_pointer reaches EOF.
+                        file_name = files.pop(0)
+                        full_path = os.path.join(self.directory, file_name)
 
-                    f = open(full_path, 'rb')
+                        f = open(full_path, 'rb')
 
-                    f.seek(self.seek_start_point)
-                    read_data = f.read(size - data_size)
+                        f.seek(self.seek_start_point)
+                        read_data = f.read(size - data_size)
 
-                    f.close()
+                        f.close()
 
-                    read_data_size = len(read_data)
-                    file_size = os.path.getsize(full_path)
-                    self.used -= read_data_size
+                        read_data_size = len(read_data)
+                        file_size = os.path.getsize(full_path)
+                        self.used -= read_data_size
 
-                    # update seek_start_point for future access
-                    self.seek_start_point += read_data_size
+                        # update seek_start_point for future access
+                        self.seek_start_point += read_data_size
 
-                    # print("Size: %s /// data_size: %s" %
-                    #       (size, data_size))
+                        # print("Size: %s /// data_size: %s" %
+                        #       (size, data_size))
 
-                    # print("Used: %s /// seek_start_point: %s /// file_size: %s" %
-                    #       (self.used, self.seek_start_point, file_size))
+                        # print("Used: %s /// seek_start_point: %s /// file_size: %s" %
+                        #       (self.used, self.seek_start_point, file_size))
 
-                    if file_size <= self.seek_start_point:
-                        # print("!!!!!!!!!!!!!!!!DELETE %s" % full_path)
-                        os.remove(full_path)
-                        self.seek_start_point = 0
+                        if file_size <= self.seek_start_point:
+                            # print("!!!!!!!!!!!!!!!!DELETE %s" % full_path)
+                            os.remove(full_path)
+                            self.seek_start_point = 0
 
-                    data += read_data
-                    data_size += read_data_size
+                        data += read_data
+                        data_size += read_data_size
 
-                result = True
-                self._lock.release()
+                    result = True
+                    self._lock.release()
+                    self._is_not_full_cache.notify()
         except Exception as e:
             result = False
             print("!!!!! Exception: %s" % e)
@@ -182,9 +224,10 @@ class SoftwareDefinedCache:
         self._lock.release()
 
     def run(self):
-        t1 = threading.Thread(target=self.decay_data)
+        # t1 = threading.Thread(target=self.decay_data)
+        t1 = threading.Thread(target=self.store_data_with_write_buffer)
         t1.start()
-        t1.join()
+        # t1.join()
 
     # for monitoring cache status
     def get_cache_status(self):
@@ -209,3 +252,11 @@ class SoftwareDefinedCache:
         self._used_lock.acquire()
         self._used = val
         self._used_lock.release()
+
+    @property
+    def buffer(self):
+        return self._buffer
+
+    @buffer.setter
+    def buffer(self, buffer):
+        self._buffer = buffer

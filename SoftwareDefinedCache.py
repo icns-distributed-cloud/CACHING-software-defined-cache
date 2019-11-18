@@ -77,7 +77,7 @@ class SoftwareDefinedCache:
             self._buffer_lock.acquire()
             self.buffer.extend(data)
             len_of_buffer = len(self.buffer)
-            print("===== Buffer len: %s" % format(len_of_buffer, ","))
+            # print("===== Buffer len: %s" % format(len_of_buffer, ","))
             self._buffer_lock.release()
             if len_of_buffer > 0:
                 self._is_not_empty_buffer.notify()
@@ -102,7 +102,7 @@ class SoftwareDefinedCache:
                             self.buffer = self.buffer[remaining_capacity:]
                             self._buffer_lock.release()
                             self.store_data(data)
-                            print("===== Stored data length: %s" % format(len(data), ","))
+                            # print("===== Stored data length: %s" % format(len(data), ","))
                         elif remaining_capacity == 0:   # Cache is full
                             print("===== CACHE IS FULL. Waiting until not full")
                             self._is_not_full_cache.wait()
@@ -158,7 +158,7 @@ class SoftwareDefinedCache:
     def read_bytes(self, size):
         data = b''
         result = False
-        print("===== Utilization: %s" % self.used)
+        # print("===== Utilization: %s" % self.used)
         try:
 
             if self.used >= size:

@@ -189,7 +189,7 @@ def on_message(client, userdata, msg):
         message = msg.payload
         counter_to_core_cloud += 1
         print("<<=== Counter to core cloud: %s" % counter_to_core_cloud)
-        print("<<=== Arrived topic: %s" % msg.topic)
+        # print("<<=== Arrived topic: %s" % msg.topic)
         # print("Arrived message: %s" % message)
 
         if msg.topic == "core/edge/" + SDC_id + "/data":
@@ -270,8 +270,8 @@ def on_local_message(client, userdata, msg):
         message = msg.payload
         counter_to_cloud_service += 1
         print("===>> Counter to cloud service: %s" % counter_to_cloud_service)
-        print("===>> Arrived topic: %s" % msg.topic)
-        print("===>> Arrived message: %s" % message)
+        # print("===>> Arrived topic: %s" % msg.topic)
+        # print("===>> Arrived message: %s" % message)
 
         if msg.topic == "edge/client/" + client_id + "/data_req":
             read_size = int(message)
